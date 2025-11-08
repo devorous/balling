@@ -27,9 +27,10 @@ class gameBoard{
 		this.score = 0;
 		this.startpos = {x:0, y:0};
 		this.pos = {x:0, y:0};
-		this.ball = null;
 		this.balls = [];
+		this.baskets = [];
 		this.drawing = false;
+		this.setup();
 	}
 	start_line(e){
 		this.drawing = true;
@@ -47,6 +48,12 @@ class gameBoard{
 		ctx.stroke();
 		ctx.closePath();
 		ctx.restore();
+	}
+	setup(){
+		let basket_pos = {x: Math.random()*(width-150)+75-30, y: Math.random()*(height-150)+75-5};
+		//75 pixel offset from walls, -30 is half the width of the basket, -5 is half the height of basket
+		this.baskets.push(new Basket(basket_pos));	
+		
 	}
 	shoot(){
 		this.drawing = false;
@@ -75,11 +82,22 @@ class gameBoard{
 		if(this.drawing){
 			this.draw_line();
 		}
-		
-		
+		for(let i=0; i<this.baskets.length; i++){
+			this.baskets[i].draw();
+		}
 		for(let i=0; i<this.balls.length; i++){
-			this.balls[i].update();
-		
+			let ball = this.balls[i]
+			ball.update();
+			for(let j=0; j<this.baskets.length; j++){
+				let basket = this.baskets[j];
+				
+				/*
+				Old simplistic hitreg using exact coordinates
+				if(ball.pos.x > basket.coords.x1 && ball.pos.x < basket.coords.x2 && ball.pos.y > basket.coords.y1 && ball.pos.y < basket.coords.y2){
+					console.log("Hit!");
+				}
+				*/
+			}
 		}
 		requestAnimationFrame(()=> this.animate());
 	}
@@ -88,9 +106,16 @@ class gameBoard{
 class Basket{
 	constructor(pos){
 		this.active = true;
-		this.size = 20;
+		this.size = 60;
 		this.pos = pos;
-
+		this.coords = {x1: pos.x,y1: pos.y,x2: pos.x+this.size,y2: pos.y+10};
+	}
+	draw(){
+		ctx.save();
+		ctx.fillStyle = 'red';
+		//ctx.translate(this.pos.x, this.pos.y);
+		ctx.fillRect(this.pos.x,this.pos.y,this.size,10);
+		ctx.restore();
 	}
 }
 
@@ -101,45 +126,49 @@ class Ball{
 		this.gravity = 1;
 		this.elasticity = 0.96;
 		this.pos = pos;
+		this.prevpos = pos;
 		this.vel = vel;
+		this.bounces = 0;
 	}
 	update(){
+		this.prevpos = this.pos;
 		this.vel.y += this.gravity
 		this.pos.x += this.vel.x;
 		this.pos.y += this.vel.y;
 		this.handleCollision();
-		
 		this.vel.x *= 0.995;
 		this.vel.y *= 0.995;
-
 		this.draw();
 	}
 	handleCollision(){
 		if(this.pos.x + this.radius > width){
-			this.pos.x = width-this.radius;
-			this.vel.x = -this.vel.x;
+			this.pos.x  = width-this.radius;
+			this.vel.x  = -this.vel.x;
 			this.vel.x *= this.elasticity;
+			this.bounces++;
 		}
 		else if(this.pos.x - this.radius < 0){
 			this.pos.x = this.radius;
 			this.vel.x = -this.vel.x;
 			this.vel.x *= this.elasticity;
+			this.bounces++;
 		}
 		else if(this.pos.y + this.radius > height){
 			this.pos.y = height-this.radius;
 			this.vel.y = -this.vel.y;
 			this.vel.y *= this.elasticity;
+			this.bounces++;
 		}
 		else if(this.pos.y - this.radius < 0){
 			this.pos.y = this.radius;
 			this.vel.y = -this.vel.y;
 			this.vel.y *= this.elasticity;
+			this.bounces++;
 		}
 	}
 	draw(){
 		ctx.save();
 		ctx.beginPath();
-
 		ctx.arc(this.pos.x,this.pos.y,this.radius,0,Math.PI*2);
 		ctx.closePath();
 		ctx.fill();
