@@ -7,17 +7,74 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(value, max));
 }
 
+function calculateIntercept(x1,y1,x2,y2,x3,y3,x4,y4){
+	let rect_center = {x: (x3+x4)/2, y: (y3+y4)/2 };
+	//Calculate center of rectangle to determine distance from ball
+	let dist = Math.sqrt((x1-rect_center.x)**2+(y1-rect_center.y)**2);
+	let dist2 = Math.sqrt((x2-rect_center.x)**2+(y2-rect_center.y)**2);
+	if(dist > 30){
+		//Don't calculate anything if the ball pos/prevpos is not close to the basket
+		return false
+	}
+	let x_min = Math.min(x1,x2);
+	let x_max = Math.max(x1,x2);
+	let y_min = Math.min(y1,y2);
+	let y_max = Math.max(y1,y2);
+	//This function calculates the interception points of a line and rectangle
+	//point 1 & 2 represent the line the ball is travelling on
+	//point 3 and 4 represent 2 diagonally opposite corners of the basket 
+	//y = mx  + b
+	let intersections = 0;
+	let slope = (y2-y1)/(x2-x1);
+	let y_int = y1 - slope*x1;
+	//First two collisions the horizontal line intercepts of the lines y=y3 and y=y4
+	//y = slope*x + y_int
+	// (y - y_int)/slope = x //solving for x
+	let collision1 = 	{x: (y3-y_int)/slope, y: y3};
+	let collision2 =  {x: (y4-y_int)/slope, y: y4};
+	//Next two are the vertical intercepts of the lines x=x3 and x=x4
+	//There is no slope for a vertical line so 
+	// y = slope*x + y_int  becomes
+	// y = slope*x3 + y_int 
+  
+	let collision3 = {x: x3, y: (slope*x3)+y_int};
+	let collision4 = {x: x4, y: (slope*x4)+y_int};
+
+	//With these four collision points we can see if any are within bounds of the basket
+	//But first I must check that the ball is actually within the bounds of the basket, too!
+	if (collision1.x >= x_min && collision1.x <= x_max) { 
+      if (collision1.y >= y_min && collision1.y <= y_max) {
+             if(collision1.x > x3 && collision1.x < x4 ){
+								intersections++;
+							}
+							if(collision1.x > x3 && collision1.x < x4 ){
+								intersections++;
+							}
+							if(collision1.y > x3 && collision1.y < x4 ){
+								intersections++;
+							}
+							if(collision1.y > x3 && collision1.y < x4 ){
+								intersections++;
+							}
+        }
+	}
+	if(intersections > 1){
+		return true
+	}
+}
 
 
 //Todo 
 /*
 
-Figure out good clamping values/length interpolation
-remove ball after its y position has been stable for 4 frames
+remove ball after its y position has been stable for x frames
 
-Add/Display score
-Count bounces (stored on ball object)
-Create target line
+Maybe use the advanced check before the simple one? 
+I'm unsure if the simple one is actually useful
+Ball radius is not accounted for in the collision calculation in the advanced one, too!
+This is causing the edge cases not to count as scores I believe
+}
+
 
 */
 class gameBoard{
@@ -69,7 +126,6 @@ class gameBoard{
 			let ball = new Ball(this.pos, vel);
 			this.balls.push(ball);
 		}
-		this.pos, this.startpos = null;
 	}
 
 	animate(){
@@ -77,7 +133,7 @@ class gameBoard{
 		ctx.save();
 		ctx.translate(this.width/2-25, 50);
 		ctx.font = "bold 50px Roboto";
-		ctx.fillText(0,0,this.score);
+		ctx.fillText(this.score,0,0);
 		ctx.restore();
 		if(this.drawing){
 			this.draw_line();
@@ -90,13 +146,34 @@ class gameBoard{
 			ball.update();
 			for(let j=0; j<this.baskets.length; j++){
 				let basket = this.baskets[j];
+
 				
-				/*
-				Old simplistic hitreg using exact coordinates
+				//Simple hitreg using exact coordinates
 				if(ball.pos.x > basket.coords.x1 && ball.pos.x < basket.coords.x2 && ball.pos.y > basket.coords.y1 && ball.pos.y < basket.coords.y2){
-					console.log("Hit!");
+					if(ball.colliding){
+						console.log("Still colliding!");
+					}
+					else{
+						ball.colliding = true;
+						this.score++;
+						console.log("First Hit!");
+					}
+					
 				}
-				*/
+				else{
+					if(ball.colliding){
+						ball.colliding = false;
+					}
+				}
+				//Advanced hitreg using algebra
+				if(!ball.colliding){
+					let collision = calculateIntercept(ball.prevpos.x, ball.prevpos.y,ball.pos.x, ball.pos.y, basket.coords.x1, basket.coords.y1, basket.coords.x2, basket.coords.y2);
+					if(collision){
+					this.score++;
+					}
+				}
+				
+
 			}
 		}
 		requestAnimationFrame(()=> this.animate());
@@ -113,7 +190,6 @@ class Basket{
 	draw(){
 		ctx.save();
 		ctx.fillStyle = 'red';
-		//ctx.translate(this.pos.x, this.pos.y);
 		ctx.fillRect(this.pos.x,this.pos.y,this.size,10);
 		ctx.restore();
 	}
@@ -122,6 +198,7 @@ class Basket{
 class Ball{
 	constructor(pos,vel){
 		this.active = true;
+		this.colliding = false;
 		this.radius = 5;
 		this.gravity = 1;
 		this.elasticity = 0.96;
@@ -131,7 +208,7 @@ class Ball{
 		this.bounces = 0;
 	}
 	update(){
-		this.prevpos = this.pos;
+		this.prevpos = {x: this.pos.x, y: this.pos.y} //deep copy;
 		this.vel.y += this.gravity
 		this.pos.x += this.vel.x;
 		this.pos.y += this.vel.y;
