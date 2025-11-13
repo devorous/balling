@@ -9,19 +9,14 @@ function clamp(value, min, max) {
 
 
 
-//Todo 
 /*
 
-remove ball after its y position has been stable for x frames
+Don't allow bonuses to spawn too close to baskets
+Add a check when they are created in gameboard.setup();
 
-
-add another life every ~5 points
-implement bounce scoring, bonus point for each wallbounce before scoring
-
-add pickup objects for bonus points
-create a little text animation for points, floating/fading away from a x/y pos
-}
-
+Add distance collision check between balls and bonus
+Change the way the slingshot is drawn so that it can rotate 
+Around wherever the initial click position is
 
 */
 class gameBoard{
@@ -35,6 +30,7 @@ class gameBoard{
 		this.balls = [];
 		this.baskets = [];
 		this.texts = [];
+		this.bonuses = [];
 		this.drawing = false;
 		this.setup();
 	}
@@ -49,15 +45,16 @@ class gameBoard{
 		ctx.save();
 		ctx.lineWidth = 2;
 		ctx.beginPath();
-		ctx.moveTo(this.startpos.x, this.startpos.y);
-		ctx.lineTo(this.pos.x, this.pos.y);
+		ctx.translate(this.startpos.x, this.startpos.y);
+		ctx.moveTo(-25,0);
+		ctx.lineTo(this.pos.x-this.startpos.x, this.pos.y-this.startpos.y);
+		ctx.lineTo(25,0);
 		ctx.stroke();
 		ctx.closePath();
 		ctx.restore();
 	}
 	draw_lives(){
 		ctx.save();
-
 		ctx.translate(30,30);
 		for(let i=0; i<this.lives; i++){
 			ctx.beginPath();
@@ -68,7 +65,8 @@ class gameBoard{
 		ctx.restore();
 	}
 	setup(){
-		this.baskets.push(new Basket());	
+		this.baskets.push(new Basket());
+		this.bonuses.push(new Bonus());	
 	}
 	shoot(){
 		if(this.lives > 0){
@@ -89,14 +87,24 @@ class gameBoard{
 		}
 	}
 	updateScore(ball){
-		let multiplier = 2;
+		let multiplier = ball.multiplier;
 		let score = ball.bounces*multiplier;
+		let pos = {x:ball.pos.x, y: ball.pos.y};
+		let text;
 		for(let i=0; i<score; i++){
 			this.score++
 			if(this.score%5 === 0){
 				this.lives++
 			}
 		}
+		if( score > 0){
+			text = new FloatingText("+"+score, pos);
+			
+		}
+		else{
+			text = new FloatingText("No score!", pos);
+		}
+		this.texts.push(text);
 
 		console.log("adding ", score, " points");
 		ball.bounces = 0;
@@ -110,6 +118,8 @@ class gameBoard{
 		ctx.font = "bold 50px Roboto";
 		ctx.fillText(this.score,0,0);
 		ctx.restore();
+
+		
 		this.draw_lives();
 		if(this.drawing && this.lives > 0){
 			this.draw_line();
@@ -128,7 +138,22 @@ class gameBoard{
 					}
 				}
 			}
+
 			ball.update();
+			for(let b=0; b<this.bonuses.length; b++){
+				let bonus = this.bonuses[b];
+				let delta_x = ball.pos.x - bonus.pos.x;
+				let delta_y = ball.pos.y - bonus.pos.y;
+				let distance = Math.sqrt(delta_x**2+delta_y**2);
+				if(distance <= bonus.radius){
+					bonus.active = false;
+					ball.multiplier *= bonus.value;
+					let text = new FloatingText("x2",bonus.pos);
+					this.texts.push(text);
+					this.bonuses.pop();
+					this.bonuses.push(new Bonus());
+				}
+			}
 			for(let j=0; j<this.baskets.length; j++){
 				let basket = this.baskets[j];
 				let score_y = (basket.coords.y1+basket.coords.y2)/2;
@@ -138,6 +163,7 @@ class gameBoard{
 					}
 				}
 			}
+			
 			ball.trail = ball.trail.filter(trail => trail.active);
 		}
 		for(let k=0; k<this.texts.length; k++){
@@ -146,27 +172,37 @@ class gameBoard{
 				text.draw();
 			}
 		}
-		this.balls = this.balls.filter(balls => balls.active);
+		for(let i=0; i<this.bonuses.length; i++){
+			let bonus = this.bonuses[i];
+			bonus.draw();
+		}
+		this.balls = this.balls.filter(ball => ball.active);
 		this.texts = this.texts.filter(text => text.active);
+		this.bonuses = this.bonuses.filter(bonus => bonus.active);
 		requestAnimationFrame(()=> this.animate());
 	}
 }
 
 class FloatingText{
-	constructor(text, pos){
+	constructor(text, pos, vel={x:(Math.random()-0.5)*5,y:(Math.random()-0.5)*5}){
 		this.text = text;
 		this.pos = {x: pos.x, y: pos.y};
-		this.pos.x += 
+		this.vel = {x: vel.x, y: vel.y};
+		this.pos.x += 1.5*this.vel.x;
+		this.pos.y += 1.5*this.vel.y;
 		this.active = true;
 		this.opacity = 1;
 	}
 	draw(){
 		ctx.save();
-		ctx.strokeStyle = "rgba(255,125,50,"+this.opacity+")";
-		ctx.strokeText(this.text,this.pos.x-6,this.pos.y);
+		ctx.fillStyle = "rgba(255,200,50,"+this.opacity+")";
+		ctx.font = "bold 20px Roboto";
+		
+		ctx.fillText(this.text,this.pos.x-10,this.pos.y+15);
 		ctx.restore();	
 		this.opacity -= 0.01;
-
+		this.pos.x += (Math.random()-0.5)*0.05+this.vel.x*0.02;
+		this.pos.y += (Math.random()-0.5)*0.05+this.vel.y*0.02;
 	}
 }
 class Trail{
@@ -195,6 +231,30 @@ class Trail{
 	}
 }
 
+class Bonus{
+	constructor(){
+		this.active = true;
+		this.radius = 18;
+		this.pos = {x: Math.random()*(width-150)+75-30, y: Math.random()*(height-150)+75-5};
+		this.rotation = Math.random()*Math.PI*2;
+		this.value = 2;
+	}
+	draw(){
+		ctx.save();
+		ctx.fillStyle="rgb(200,200,0)";
+		ctx.translate(this.pos.x,this.pos.y);
+		ctx.beginPath();
+		ctx.rotate(this.rotation);
+		for(let i=0; i<=5; i++){
+			ctx.lineTo(0,this.radius);
+			ctx.rotate(Math.PI/180*60);
+		}
+		ctx.closePath();
+		ctx.fill();
+		ctx.restore();
+	}
+}
+
 class Basket{
 	constructor(){
 		this.active = true;
@@ -218,16 +278,18 @@ class Ball{
 		this.radius = 5;
 		this.gravity = 1;
 		this.elasticity = 0.96;
+		this.red = 0;
 		this.pos = pos;
 		this.prevpos = pos;
 		this.vel = vel;
 		this.bounces = 0;
+		this.multiplier = 1;
 		this.trail = [];
 		this.stability = 0;
 		this.stabilityThreshold = 50;
 	}
 	update(){
-		this.prevpos = {x: this.pos.x, y: this.pos.y} //deep copy;
+		this.prevpos = {x: this.pos.x, y: this.pos.y} //deep copy object;
 		this.vel.y += this.gravity
 		this.pos.x += this.vel.x;
 		this.pos.y += this.vel.y;
@@ -243,43 +305,48 @@ class Ball{
 		this.draw();
 	}
 	bounce(){
-		this.bounces++;
-		let bounceText = new FloatingText("+1",this.pos);
-		board.texts.push(bounceText);
+		this.vel.x *= this.elasticity;
+		this.vel.y *= this.elasticity;
+		if(Math.abs(this.vel.y) > 5){
+			this.bounces++;
+			let bounceText = new FloatingText("+1",this.pos, this.vel);
+			board.texts.push(bounceText);
+		}
+		if(this.red < 100){
+			this.red +=5;	
+		}
+		
+		
 	}
 	handleCollision(){
 		if(this.pos.x + this.radius > width){
 			this.pos.x  = width-this.radius;
 			this.vel.x  = -this.vel.x;
-			this.vel.x *= this.elasticity;
 			this.bounce();
 		}
 		else if(this.pos.x - this.radius < 0){
 			this.pos.x = this.radius;
 			this.vel.x = -this.vel.x;
-			this.vel.x *= this.elasticity;
 			this.bounce();
 		}
 		else if(this.pos.y + this.radius > height){
 			this.pos.y = height-this.radius;
 			this.vel.y = -this.vel.y;
-			this.vel.y *= this.elasticity;
 			this.bounce();
 		}
 		else if(this.pos.y - this.radius < 0){
 			this.pos.y = this.radius;
 			this.vel.y = -this.vel.y;
-			this.vel.y *= this.elasticity;
 			this.bounce();
 		}
 	}
 	draw(){
 		ctx.save();
 		ctx.beginPath();
+		ctx.fillStyle = "rgba("+this.red+",0,0)";
 		ctx.arc(this.pos.x,this.pos.y,this.radius,0,Math.PI*2);
 		ctx.closePath();
 		ctx.fill();
-		ctx.stroke();
 		ctx.restore();
 	}
 }
@@ -292,3 +359,8 @@ canvas.addEventListener('pointerdown', (e) => board.start_line(e));
 canvas.addEventListener('pointermove', (e) => board.set_pos(e));
 canvas.addEventListener('pointerup', (e) => board.shoot(e));
 
+/*
+canvas.addEventListener('touchstart', (e) => board.start_line(e));
+canvas.addEventListener('touchmove', (e) => board.set_pos(e));
+canvas.addEventListener('touchend', (e) => board.shoot(e));
+*/
