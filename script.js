@@ -7,16 +7,19 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(value, max));
 }
 
-
+function get_distance(pos1, pos2){
+	let delta_x = pos1.x-pos2.x;
+	let delta_y = pos1.y-pos2.y;
+	return Math.sqrt(delta_x**2+delta_y**2);
+}
 
 /*
+TODO
 
-Don't allow bonuses to spawn too close to baskets
-Add a check when they are created in gameboard.setup();
+Add some different coloured floating texts, bonuses
 
-Add distance collision check between balls and bonus
-Change the way the slingshot is drawn so that it can rotate 
-Around wherever the initial click position is
+Add a simple start screen with instructions and a start button
+
 
 */
 class gameBoard{
@@ -26,12 +29,14 @@ class gameBoard{
 		this.score = 0;
 		this.startpos = {x:0, y:0};
 		this.pos = {x:0, y:0};
+		this.ballpos = {x:0, y:0};
 		this.lives = 5;
 		this.balls = [];
 		this.baskets = [];
 		this.texts = [];
 		this.bonuses = [];
 		this.drawing = false;
+		this.move = false;
 		this.setup();
 	}
 	start_line(e){
@@ -40,37 +45,79 @@ class gameBoard{
 	}
 	set_pos(e){
 		this.pos = {x: e.x, y: e.y};
+		if(this.drawing){
+			this.moved = true;
+		}
 	}
 	draw_line(){
-		ctx.save();
-		ctx.lineWidth = 2;
-		ctx.beginPath();
-		ctx.translate(this.startpos.x, this.startpos.y);
-		ctx.moveTo(-25,0);
-		ctx.lineTo(this.pos.x-this.startpos.x, this.pos.y-this.startpos.y);
-		ctx.lineTo(25,0);
-		ctx.stroke();
-		ctx.closePath();
-		ctx.restore();
+		if(this.moved){
+			ctx.save();
+			ctx.lineWidth = 2;
+			let delta_x = this.startpos.x - this.pos.x;
+			let delta_y = this.startpos.y - this.pos.y;
+			let angle = Math.atan2(delta_y, delta_x);
+			let distance = Math.sqrt(delta_x**2+delta_y**2);
+			let distance_clamped = clamp(distance,0,50);
+			let ratio = distance > 0 ? distance_clamped / distance : 0;
+			let spread = 20;
+
+			let delta_x_clamped = delta_x*ratio;
+			let delta_y_clamped = delta_y*ratio;
+
+			this.ball_startpos = {
+				x: this.startpos.x - delta_x_clamped,
+				y: this.startpos.y - delta_y_clamped
+			};
+
+			ctx.save();
+			ctx.arc(this.ball_startpos.x,this.ball_startpos.y,5,0,Math.PI*2);
+			ctx.fill();
+			ctx.restore();
+
+			ctx.beginPath();
+			ctx.translate(this.startpos.x, this.startpos.y);
+			ctx.rotate(angle);
+
+			
+			
+
+			ctx.moveTo(0, -spread);
+			ctx.lineTo(-distance_clamped,0);
+			ctx.moveTo(0, spread);
+			ctx.lineTo(-distance_clamped,0);
+			ctx.closePath();
+			ctx.stroke();
+			
+			ctx.restore();
+		}
 	}
 	draw_lives(){
 		ctx.save();
 		ctx.translate(30,30);
+		let y = 0;
+		let x = -35;
 		for(let i=0; i<this.lives; i++){
+			if(i%5===0 && i > 0 ){
+				y += 35;
+				x -= (35*5);
+			}
+			x += 35;
 			ctx.beginPath();
-			ctx.arc(35*i,0,12,0,Math.PI*2);
+			ctx.arc(x,y,12,0,Math.PI*2);
 			ctx.fill();
 			ctx.closePath();
 		}
 		ctx.restore();
 	}
 	setup(){
-		this.baskets.push(new Basket());
-		this.bonuses.push(new Bonus());	
+		//Send board object to be referred to within Basket/Bonus as this
+		this.baskets.push(new Basket(this));
+		this.bonuses.push(new Bonus(this));	
 	}
 	shoot(){
 		if(this.lives > 0){
 			this.drawing = false;
+			this.moved = false;
 			let delta_x = this.startpos.x - this.pos.x;
 			let delta_y = this.startpos.y - this.pos.y;
 			if(delta_x !== 0 && delta_y !== 0){
@@ -80,7 +127,7 @@ class gameBoard{
 				let vel_x = Math.sin(angle) * speed;
 				let vel_y = Math.cos(angle) * speed;
 				let vel = {x: vel_x, y: vel_y}
-				let ball = new Ball(this.pos, vel);
+				let ball = new Ball(this.ball_startpos, vel);
 				this.balls.push(ball);
 				this.lives--;
 			}
@@ -94,22 +141,30 @@ class gameBoard{
 		for(let i=0; i<score; i++){
 			this.score++
 			if(this.score%5 === 0){
-				this.lives++
+				if(this.lives >= 15){
+					this.score +=5;
+					console.log("+5 score")
+					let text = new FloatingText("Max Lives Bonus!", 25, {x: width/2-75, y: height/5});
+					this.texts.push(text);
+				}
+				else{
+					this.lives++
+				}
 			}
 		}
 		if( score > 0){
-			text = new FloatingText("+"+score, pos);
+			text = new FloatingText("+"+score, 30, pos);
 			
 		}
 		else{
-			text = new FloatingText("No score!", pos);
+			text = new FloatingText("No score!",20, pos);
 		}
 		this.texts.push(text);
 
 		console.log("adding ", score, " points");
 		ball.bounces = 0;
 		this.baskets.pop();
-		this.baskets.push(new Basket());
+		this.baskets.push(new Basket(this));
 	}
 	animate(){
 		ctx.clearRect(0,0,this.width,this.height);
@@ -119,8 +174,7 @@ class gameBoard{
 		ctx.fillText(this.score,0,0);
 		ctx.restore();
 
-		
-		this.draw_lives();
+
 		if(this.drawing && this.lives > 0){
 			this.draw_line();
 		}
@@ -142,16 +196,14 @@ class gameBoard{
 			ball.update();
 			for(let b=0; b<this.bonuses.length; b++){
 				let bonus = this.bonuses[b];
-				let delta_x = ball.pos.x - bonus.pos.x;
-				let delta_y = ball.pos.y - bonus.pos.y;
-				let distance = Math.sqrt(delta_x**2+delta_y**2);
+				let distance = get_distance(ball.pos, bonus.pos);
 				if(distance <= bonus.radius){
 					bonus.active = false;
 					ball.multiplier *= bonus.value;
-					let text = new FloatingText("x2",bonus.pos);
+					let text = new FloatingText("x2",20,bonus.pos);
 					this.texts.push(text);
 					this.bonuses.pop();
-					this.bonuses.push(new Bonus());
+					this.bonuses.push(new Bonus(this));
 				}
 			}
 			for(let j=0; j<this.baskets.length; j++){
@@ -176,6 +228,7 @@ class gameBoard{
 			let bonus = this.bonuses[i];
 			bonus.draw();
 		}
+		this.draw_lives();
 		this.balls = this.balls.filter(ball => ball.active);
 		this.texts = this.texts.filter(text => text.active);
 		this.bonuses = this.bonuses.filter(bonus => bonus.active);
@@ -184,19 +237,21 @@ class gameBoard{
 }
 
 class FloatingText{
-	constructor(text, pos, vel={x:(Math.random()-0.5)*5,y:(Math.random()-0.5)*5}){
+	constructor(text, size, pos, vel={x:(Math.random()-0.5)*5,y:(Math.random()-0.5)*5}, colour = {r:255, g:200, b: 50}){
 		this.text = text;
 		this.pos = {x: pos.x, y: pos.y};
 		this.vel = {x: vel.x, y: vel.y};
+		this.size = size;
 		this.pos.x += 1.5*this.vel.x;
 		this.pos.y += 1.5*this.vel.y;
 		this.active = true;
 		this.opacity = 1;
+		this.colour = colour;
 	}
 	draw(){
 		ctx.save();
-		ctx.fillStyle = "rgba(255,200,50,"+this.opacity+")";
-		ctx.font = "bold 20px Roboto";
+		ctx.fillStyle = `rgba(${this.colour.r},${this.colour.g},${this.colour.b},`+this.opacity+")";
+		ctx.font = "bold "+this.size+"px Roboto";
 		
 		ctx.fillText(this.text,this.pos.x-10,this.pos.y+15);
 		ctx.restore();	
@@ -232,10 +287,21 @@ class Trail{
 }
 
 class Bonus{
-	constructor(){
+	constructor(gameBoard){
 		this.active = true;
 		this.radius = 18;
+		this.board = gameBoard;
 		this.pos = {x: Math.random()*(width-150)+75-30, y: Math.random()*(height-150)+75-5};
+		for(let i=0; i<this.board.baskets.length; i++){
+			let basket = this.board.baskets[i];
+			let distance = get_distance(basket.pos, this.pos);
+			let tries = 0;
+			while(distance < 75 && tries < 1000){
+					tries++;
+					this.pos = {x: Math.random()*(width-150)+75-30, y: Math.random()*(height-150)+75-5};
+					distance = get_distance(basket.pos, this.pos);
+			}
+		}
 		this.rotation = Math.random()*Math.PI*2;
 		this.value = 2;
 	}
@@ -256,11 +322,22 @@ class Bonus{
 }
 
 class Basket{
-	constructor(){
+	constructor(gameBoard){
 		this.active = true;
 		this.size = 60;
+		this.board = gameBoard;
 		//75 pixel offset from walls, -30 is half the width of the basket, -5 is half the height of basket
 		this.pos = {x: Math.random()*(width-150)+75-30, y: Math.random()*(height-150)+75-5};
+		for(let i=0; i<this.board.bonuses.length; i++){
+			let bonus = this.board.bonuses[i];
+			let distance = get_distance(bonus.pos, this.pos);
+			let tries = 0;
+			while(distance < 75 && tries < 1000){
+					tries++;
+					this.pos = {x: Math.random()*(width-150)+75-30, y: Math.random()*(height-150)+75-5};
+					distance = get_distance(bonus.pos, this.pos);
+			}
+		}
 		this.coords = {x1: this.pos.x,y1: this.pos.y,x2: this.pos.x+this.size,y2: this.pos.y+5};
 	}
 	draw(){
@@ -309,13 +386,12 @@ class Ball{
 		this.vel.y *= this.elasticity;
 		if(Math.abs(this.vel.y) > 5){
 			this.bounces++;
-			let bounceText = new FloatingText("+1",this.pos, this.vel);
+			let bounceText = new FloatingText('+1', 14, this.pos, this.vel);
 			board.texts.push(bounceText);
 		}
 		if(this.red < 100){
 			this.red +=5;	
 		}
-		
 		
 	}
 	handleCollision(){
