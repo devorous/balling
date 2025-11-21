@@ -13,12 +13,26 @@ function get_distance(pos1, pos2){
 	return Math.sqrt(delta_x**2+delta_y**2);
 }
 
+function draw_rect(pos1, pos2, fill=null){
+	ctx.save();
+	ctx.beginPath();
+	ctx.moveTo(pos1.x,pos1.y);
+	ctx.lineTo(pos2.x, pos1.y);
+	ctx.lineTo(pos2.x, pos2.y);
+	ctx.lineTo(pos1.x, pos2.y);
+	ctx.closePath();
+	ctx.stroke();
+	if(fill){
+		ctx.fill();
+	}
+}
+
 /*
 TODO
 
 Add some different coloured floating texts, bonuses
 
-Add a simple start screen with instructions and a start button
+Green bonus gives 0 gravity for 10 seconds
 
 
 */
@@ -37,11 +51,63 @@ class gameBoard{
 		this.bonuses = [];
 		this.drawing = false;
 		this.move = false;
+		this.in_menu = true;
+		this.interval = null;
+		//this.setup();
+		this.draw_menu();
+	}
+	start_game(){
+		ctx.setTransform(1, 0, 0, 1, 0, 0);
+		ctx.clearRect(0,0,width,height);
+		this.in_menu = false;
 		this.setup();
 	}
-	start_line(e){
-		this.drawing = true;
-		this.startpos = {x: e.x, y: e.y};
+	draw_menu(){
+		ctx.save();
+		ctx.translate(width/2, height/2+25);
+		ctx.fillStyle = '#CBB';
+		draw_rect({x:-50,y:-100},{x:50,y:-50}, true);
+
+		ctx.font = "bold 50px Roboto";
+		ctx.fillStyle = 'yellow';
+		ctx.strokeStyle = 'red';
+		ctx.fillText("Rebounder", -125, -150);
+		ctx.strokeText("Rebounder", -125, -150);
+		ctx.fillStyle = "black";
+		ctx.font = '40px Roboto';
+		ctx.fillText("Start",-43,-62);
+		ctx.font = "bold 25px Roboto";
+		ctx.fillText("How to Play", -65, -5);
+		ctx.fillStyle = 'black';
+		ctx.font = '18px Roboto';
+		ctx.translate(0,15);
+		ctx.fillText("Bounce the ball off walls to increase their score", -190,20);
+		ctx.fillText("Hit bonus hexagons for special effects", -160,45);
+		ctx.fillText("Pass through the hoops to score", -140,70);
+		ctx.font = 'italic 17px Roboto';
+		ctx.fillText("Multiply ball score by 2", -280,-60);
+		ctx.fillText('Remove gravity for 1.5 sec', 90, -60);
+
+		ctx.restore();
+		let mult_bonus = new Bonus(this, 'mult', {x:-200, y: -100} );
+		mult_bonus.draw();
+		let grav_bonus = new Bonus(this, 'grav', {x:180, y: -100} );
+		grav_bonus.draw();
+	}
+	mouse_down(e){
+		if(!this.in_menu){
+			this.drawing = true;
+			this.startpos = {x: e.x, y: e.y};
+		}
+		else{
+			if(e.x > 250 && e.x < 350 && e.y > 135 && e.y < 185  ){
+				//If you click  within the start button area
+				console.log("start!");
+				this.start_game()
+			}
+		}
+
+		
 	}
 	set_pos(e){
 		this.pos = {x: e.x, y: e.y};
@@ -49,7 +115,7 @@ class gameBoard{
 			this.moved = true;
 		}
 	}
-	draw_line(){
+	draw_sling(){
 		if(this.moved){
 			ctx.save();
 			ctx.lineWidth = 2;
@@ -61,8 +127,8 @@ class gameBoard{
 			let ratio = distance > 0 ? distance_clamped / distance : 0;
 			let spread = 20;
 
-			let delta_x_clamped = delta_x*ratio;
-			let delta_y_clamped = delta_y*ratio;
+			let delta_x_clamped = delta_x*ratio*0.9;
+			let delta_y_clamped = delta_y*ratio*0.9;
 
 			this.ball_startpos = {
 				x: this.startpos.x - delta_x_clamped,
@@ -77,9 +143,6 @@ class gameBoard{
 			ctx.beginPath();
 			ctx.translate(this.startpos.x, this.startpos.y);
 			ctx.rotate(angle);
-
-			
-			
 
 			ctx.moveTo(0, -spread);
 			ctx.lineTo(-distance_clamped,0);
@@ -112,9 +175,14 @@ class gameBoard{
 	setup(){
 		//Send board object to be referred to within Basket/Bonus as this
 		this.baskets.push(new Basket(this));
-		this.bonuses.push(new Bonus(this));	
+		this.bonuses.push(new Bonus(this));
+		this.interval = setInterval(this.animate.bind(this), 1000/60);
+		//Need to bind the interval to the board object to access its properties within the animate method
 	}
 	shoot(){
+		if(this.in_menu || !this.drawing){
+			return;
+		}
 		if(this.lives > 0){
 			this.drawing = false;
 			this.moved = false;
@@ -174,9 +242,8 @@ class gameBoard{
 		ctx.fillText(this.score,0,0);
 		ctx.restore();
 
-
 		if(this.drawing && this.lives > 0){
-			this.draw_line();
+			this.draw_sling();
 		}
 		for(let i=0; i<this.baskets.length; i++){
 			this.baskets[i].draw();
@@ -199,9 +266,23 @@ class gameBoard{
 				let distance = get_distance(ball.pos, bonus.pos);
 				if(distance <= bonus.radius){
 					bonus.active = false;
-					ball.multiplier *= bonus.value;
-					let text = new FloatingText("x2",20,bonus.pos);
-					this.texts.push(text);
+					if(bonus.type === 'mult'){
+						ball.multiplier *= bonus.value;
+						let text = new FloatingText("x2",20,bonus.pos);
+						this.texts.push(text);
+					}
+					else if(bonus.type === 'grav'){
+						ball.gravity = 0;
+						ball.friction = {x:1, y: 1}
+						ball.elasticity = 1;
+						let text = new FloatingText("Floating!", 15, bonus.pos, undefined, {r:50,g:200,b:50});
+						this.texts.push(text);
+						setTimeout(() =>{
+							ball.gravity = 1
+							ball.friction = {x : 0.997, y: 0.995};
+							ball.elasticity = 0.96;
+						}, 1500);
+					}
 					this.bonuses.pop();
 					this.bonuses.push(new Bonus(this));
 				}
@@ -232,7 +313,6 @@ class gameBoard{
 		this.balls = this.balls.filter(ball => ball.active);
 		this.texts = this.texts.filter(text => text.active);
 		this.bonuses = this.bonuses.filter(bonus => bonus.active);
-		requestAnimationFrame(()=> this.animate());
 	}
 }
 
@@ -287,11 +367,25 @@ class Trail{
 }
 
 class Bonus{
-	constructor(gameBoard){
+	constructor(gameBoard, type=null, pos=null){
 		this.active = true;
 		this.radius = 18;
 		this.board = gameBoard;
-		this.pos = {x: Math.random()*(width-150)+75-30, y: Math.random()*(height-150)+75-5};
+		// 50/50 chance of becoming each type of bonus
+		if(type){
+			this.type = type;
+		}
+		else{
+			this.type = Math.random() > 0.5 ? 'mult' : 'grav';
+		}
+		
+		this.colour = this.type === 'mult' ? 'rgb(200,200,0)' : 'rgb(50,200,50)';
+		if(pos){
+			this.pos = pos;
+		}
+		else{
+			this.pos = {x: Math.random()*(width-150)+75-30, y: Math.random()*(height-150)+75-5};
+		}
 		for(let i=0; i<this.board.baskets.length; i++){
 			let basket = this.board.baskets[i];
 			let distance = get_distance(basket.pos, this.pos);
@@ -307,7 +401,7 @@ class Bonus{
 	}
 	draw(){
 		ctx.save();
-		ctx.fillStyle="rgb(200,200,0)";
+		ctx.fillStyle=this.colour;
 		ctx.translate(this.pos.x,this.pos.y);
 		ctx.beginPath();
 		ctx.rotate(this.rotation);
@@ -324,7 +418,7 @@ class Bonus{
 class Basket{
 	constructor(gameBoard){
 		this.active = true;
-		this.size = 60;
+		this.size = 55;
 		this.board = gameBoard;
 		//75 pixel offset from walls, -30 is half the width of the basket, -5 is half the height of basket
 		this.pos = {x: Math.random()*(width-150)+75-30, y: Math.random()*(height-150)+75-5};
@@ -355,6 +449,7 @@ class Ball{
 		this.radius = 5;
 		this.gravity = 1;
 		this.elasticity = 0.96;
+		this.friction = {x: 0.997, y: 0.995};
 		this.red = 0;
 		this.pos = pos;
 		this.prevpos = pos;
@@ -366,13 +461,13 @@ class Ball{
 		this.stabilityThreshold = 50;
 	}
 	update(){
-		this.prevpos = {x: this.pos.x, y: this.pos.y} //deep copy object;
+		this.prevpos = {x: this.pos.x, y: this.pos.y} //deep copy position;
 		this.vel.y += this.gravity
 		this.pos.x += this.vel.x;
 		this.pos.y += this.vel.y;
 		this.handleCollision();
-		this.vel.x *= 0.995;
-		this.vel.y *= 0.995;
+		this.vel.x *= this.friction.x; // Less friction in the x direction feels better
+		this.vel.y *= this.friction.y;
 		if(Math.abs(this.vel.y) < 0.6){
 			this.stability++;
 		}
@@ -395,6 +490,8 @@ class Ball{
 		
 	}
 	handleCollision(){
+		//Make the ball move directly next to the wall
+		//Before it bounces, so it doesn't bounce in midair
 		if(this.pos.x + this.radius > width){
 			this.pos.x  = width-this.radius;
 			this.vel.x  = -this.vel.x;
@@ -429,14 +526,8 @@ class Ball{
 
 
 let board = new gameBoard(width,height);
-board.animate();
 
-canvas.addEventListener('pointerdown', (e) => board.start_line(e));
+
+canvas.addEventListener('pointerdown', (e) => board.mouse_down(e));
 canvas.addEventListener('pointermove', (e) => board.set_pos(e));
 canvas.addEventListener('pointerup', (e) => board.shoot(e));
-
-/*
-canvas.addEventListener('touchstart', (e) => board.start_line(e));
-canvas.addEventListener('touchmove', (e) => board.set_pos(e));
-canvas.addEventListener('touchend', (e) => board.shoot(e));
-*/
