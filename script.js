@@ -4,6 +4,16 @@ let height = canvas.height;
 let width = canvas.width;
 
 const bounce_url = 'sounds/bounce2.wav';
+const gameover_url = 'sounds/gameover.mp3';
+const gravity_url = 'sounds/gravity.mp3';
+const powerup_url = 'sounds/powerup.mp3';
+const win_url = 'sounds/win.mp3';
+
+const gameover_sfx = new Audio(gameover_url);
+const gravity_sfx = new Audio(gravity_url);
+const powerup_sfx = new Audio(powerup_url);
+const win_sfx = new Audio(win_url);
+
 
 
 // Step 1: Configuration
@@ -23,7 +33,6 @@ function playBounce(velocity) {
     // 1. Get the next audio object in the pool (e.g., Audio_1, then Audio_2, etc.)
     const audioPlayer = soundPool[currentIndex];
     let volume = clamp(Math.round(velocity/5)/10, 0, 0.75);
-    console.log("Volume: ", volume);	
     audioPlayer.volume = volume;
     // 2. Reset and Play the object
     audioPlayer.currentTime = 0;
@@ -102,6 +111,15 @@ class gameBoard{
 		ctx.setTransform(1, 0, 0, 1, 0, 0);
 		ctx.clearRect(0,0,width,height);
 		this.in_menu = false;
+
+		this.lives = 5;
+		this.score = 0;
+		this.target = 50;
+		this.balls = [];
+		this.baskets = [];
+		this.bonuses = [];
+		this.texts = [];
+		this.game_end = false;
 		this.setup();
 	}
 
@@ -272,7 +290,9 @@ class gameBoard{
 			text = new FloatingText("No score!",20, pos);
 		}
 		this.texts.push(text);
-		if(this.score > this.target){
+		if(this.score >= this.target){
+			win_sfx.currentTime = 0;
+            win_sfx.play().catch(e => console.error("Win playback error:", e));
 			this.game_end = true;
 			this.baskets = [];
 			this.bonuses= [];
@@ -334,16 +354,19 @@ class gameBoard{
 	animate(){
 		ctx.clearRect(0,0,this.width,this.height);
 		if(this.lives === 0 && this.balls.length === 0 && !this.in_menu && !this.game_end){
+			gameover_sfx.currentTime = 0;
+			gameover_sfx.volume = 0.5;
+            gameover_sfx.play().catch(e => console.error("Game Over playback error:", e));
 			this.in_menu = true;
 			clearInterval(this.interval);
 			ctx.save();
 			ctx.font = "bold 40px Roboto";
 			ctx.fillText("You Lose!!!", this.width/2-100, this.height/2);
 			ctx.restore();
-			setTimeout(()=>{
+			setTimeout((()=>{
 				this.start_game();
 				console.log("restarting");
-			},1500);
+			}).bind(this) ,1500);
 			return;
 		}
 		ctx.save();
@@ -383,12 +406,21 @@ class gameBoard{
 				let distance = get_distance(ball.pos, bonus.pos);
 				if(distance <= bonus.radius){
 					bonus.active = false;
+					
 					if(bonus.type === 'mult'){
+
+						powerup_sfx.currentTime = 0;
+						gravity_sfx.volume = 0.8;
+                    	powerup_sfx.play().catch(e => console.error("Powerup playback error:", e));
 						ball.multiplier *= bonus.value;
 						let text = new FloatingText("x2",20,bonus.pos);
 						this.texts.push(text);
 					}
 					else if(bonus.type === 'grav'){
+
+						gravity_sfx.currentTime = 0;
+						gravity_sfx.volume = 0.5;
+                        gravity_sfx.play().catch(e => console.error("Gravity playback error:", e));
 						if(this.gravTimeout){
 							clearTimeout(this.gravTimeout);
 						}
