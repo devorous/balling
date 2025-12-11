@@ -3,15 +3,49 @@ let ctx = canvas.getContext("2d");
 let height = canvas.height;
 let width = canvas.width;
 
+const bounce_url = 'sounds/bounce2.wav';
+
+
+// Step 1: Configuration
+const MAX_CONCURRENT_SFX = 5; // Allow up to 5 overlapping sounds
+
+const soundPool = [];
+let currentIndex = 0;
+
+// Step 2: Fill the Pool
+for (let i = 0; i < MAX_CONCURRENT_SFX; i++) {
+    // Each element in the array is a separate, independent player object
+    soundPool.push(new Audio(bounce_url)); 
+}
+
+// Step 3: The Playback Function
+function playBounce(velocity) {
+    // 1. Get the next audio object in the pool (e.g., Audio_1, then Audio_2, etc.)
+    const audioPlayer = soundPool[currentIndex];
+    let volume = clamp(Math.round(velocity/5)/10, 0, 0.75);
+    console.log("Volume: ", volume);	
+    audioPlayer.volume = volume;
+    // 2. Reset and Play the object
+    audioPlayer.currentTime = 0;
+    audioPlayer.play()
+        .catch(e => console.error("Playback error:", e));
+
+    // 3. Move the index to the next player, wrapping around using modulo (%)
+    currentIndex = (currentIndex + 1) % MAX_CONCURRENT_SFX; 
+}
+
+
 function clamp(value, min, max) {
   return Math.max(min, Math.min(value, max));
 }
+
 
 function get_distance(pos1, pos2){
 	let delta_x = pos1.x-pos2.x;
 	let delta_y = pos1.y-pos2.y;
 	return Math.sqrt(delta_x**2+delta_y**2);
 }
+
 
 function draw_rect(pos1, pos2, fill=null){
 	ctx.save();
@@ -30,21 +64,27 @@ function draw_rect(pos1, pos2, fill=null){
 /*
 TODO
 
-Add some different coloured floating texts, bonuses
-
-Green bonus gives 0 gravity for 10 seconds
+Add a losing screen w/ a reset button
+Touch events
+Hover colour on button
 
 
 */
+
+
 class gameBoard{
 	constructor(width, height){
 		this.width = width;
 		this.height = height;
 		this.score = 0;
+		this.target = 50;
 		this.startpos = {x:0, y:0};
 		this.pos = {x:0, y:0};
 		this.ballpos = {x:0, y:0};
 		this.lives = 5;
+		this.ball_size = 8;
+		this.sling_width = 30;
+		this.max_speed = 28;
 		this.balls = [];
 		this.baskets = [];
 		this.texts = [];
@@ -52,16 +92,19 @@ class gameBoard{
 		this.drawing = false;
 		this.move = false;
 		this.in_menu = true;
+		this.game_end = false;
 		this.interval = null;
-		//this.setup();
+		this.gravTimeout = null;
 		this.draw_menu();
 	}
+
 	start_game(){
 		ctx.setTransform(1, 0, 0, 1, 0, 0);
 		ctx.clearRect(0,0,width,height);
 		this.in_menu = false;
 		this.setup();
 	}
+
 	draw_menu(){
 		ctx.save();
 		ctx.translate(width/2, height/2+25);
@@ -71,8 +114,8 @@ class gameBoard{
 		ctx.font = "bold 50px Roboto";
 		ctx.fillStyle = 'yellow';
 		ctx.strokeStyle = 'red';
-		ctx.fillText("Rebounder", -125, -150);
-		ctx.strokeText("Rebounder", -125, -150);
+		ctx.fillText("Rebound", -100, -150);
+		ctx.strokeText("Rebound", -100, -150);
 		ctx.fillStyle = "black";
 		ctx.font = '40px Roboto';
 		ctx.fillText("Start",-43,-62);
@@ -81,11 +124,12 @@ class gameBoard{
 		ctx.fillStyle = 'black';
 		ctx.font = '18px Roboto';
 		ctx.translate(0,15);
-		ctx.fillText("Bounce the ball off walls to increase their score", -190,20);
-		ctx.fillText("Hit bonus hexagons for special effects", -160,45);
-		ctx.fillText("Pass through the hoops to score", -140,70);
+		ctx.fillText("Click and drag to launch a ball", -120,20);
+		ctx.fillText("Bounce the ball off walls to increase their value", -185,45);
+		ctx.fillText("Hit bonus hexagons for special effects", -150,70);
+		ctx.fillText("Pass through the hoops to score",-130,95);
 		ctx.font = 'italic 17px Roboto';
-		ctx.fillText("Multiply ball score by 2", -280,-60);
+		ctx.fillText("Multiply ball value by 2", -280,-60);
 		ctx.fillText('Remove gravity for 1.5 sec', 90, -60);
 
 		ctx.restore();
@@ -102,8 +146,7 @@ class gameBoard{
 		else{
 			if(e.x > 250 && e.x < 350 && e.y > 135 && e.y < 185  ){
 				//If you click  within the start button area
-				console.log("start!");
-				this.start_game()
+				this.start_game();
 			}
 		}
 
@@ -125,7 +168,7 @@ class gameBoard{
 			let distance = Math.sqrt(delta_x**2+delta_y**2);
 			let distance_clamped = clamp(distance,0,50);
 			let ratio = distance > 0 ? distance_clamped / distance : 0;
-			let spread = 20;
+			let spread = this.sling_width;
 
 			let delta_x_clamped = delta_x*ratio*0.9;
 			let delta_y_clamped = delta_y*ratio*0.9;
@@ -136,7 +179,8 @@ class gameBoard{
 			};
 
 			ctx.save();
-			ctx.arc(this.ball_startpos.x,this.ball_startpos.y,5,0,Math.PI*2);
+			ctx.fillStyle = 'black';
+			ctx.arc(this.ball_startpos.x,this.ball_startpos.y,this.ball_size,0,Math.PI*2);
 			ctx.fill();
 			ctx.restore();
 
@@ -157,6 +201,7 @@ class gameBoard{
 	draw_lives(){
 		ctx.save();
 		ctx.translate(30,30);
+		ctx.fillStyle = 'black';
 		let y = 0;
 		let x = -35;
 		for(let i=0; i<this.lives; i++){
@@ -191,11 +236,11 @@ class gameBoard{
 			if(delta_x !== 0 && delta_y !== 0){
 				let length = Math.sqrt(delta_x**2+delta_y**2);
 				let angle = Math.atan2(delta_x,delta_y);
-				let speed = clamp(length,0,30);
+				let speed = clamp(length,0,this.max_speed);
 				let vel_x = Math.sin(angle) * speed;
 				let vel_y = Math.cos(angle) * speed;
 				let vel = {x: vel_x, y: vel_y}
-				let ball = new Ball(this.ball_startpos, vel);
+				let ball = new Ball(this.ball_startpos, vel, this.ball_size);
 				this.balls.push(ball);
 				this.lives--;
 			}
@@ -211,7 +256,6 @@ class gameBoard{
 			if(this.score%5 === 0){
 				if(this.lives >= 15){
 					this.score +=5;
-					console.log("+5 score")
 					let text = new FloatingText("Max Lives Bonus!", 25, {x: width/2-75, y: height/5});
 					this.texts.push(text);
 				}
@@ -228,18 +272,87 @@ class gameBoard{
 			text = new FloatingText("No score!",20, pos);
 		}
 		this.texts.push(text);
+		if(this.score > this.target){
+			this.game_end = true;
+			this.baskets = [];
+			this.bonuses= [];
+			clearInterval(this.interval);
+			this.interval = setInterval(this.animate.bind(this), 1000/30);
+			//Epic slo-mo when you win a round!!
+			let life_interval = null;
+			setTimeout(()=>{
+				clearInterval(this.interval);
+				clearInterval(life_interval)
+				this.baskets = [];
+				this.balls = [];
+				this.texts = [];
+				this.target = this.score - this.score%10 + 100;
+				this.animate();
+				this.setup();
+				this.game_end = false;
+				this.lives = 4;
+				if(this.ball_size > 4){
+					this.ball_size*=0.9;
+				}
+				if(life_interval){
+					clearInterval(life_interval);	
+				}
+				
+			}, this.lives*500+1000);
+			let text_options = [
+				"Epic!",
+				"Nice!",
+				"Great!",
+				"Cool!",
+				"Slick!",
+				"Wow!!"
+			]
+			let text = text_options[Math.floor(Math.random()*text_options.length)];
+			//Pick a random choice for round clear
+			let win_text = new FloatingText(text, 50, {x: width/2-60, y: height/2});
+			this.texts.push(win_text);
+			if(this.lives!= 0){
+				life_interval = setInterval(()=>{
+					if(this.lives > 0){
+						this.lives--;
+						this.score += 5;
+					}
+				},500)
+			}
+			
 
-		console.log("adding ", score, " points");
+			ball.gravity = 0;
+			
+		}
 		ball.bounces = 0;
 		this.baskets.pop();
-		this.baskets.push(new Basket(this));
+		if(!this.game_end){
+			this.baskets.push(new Basket(this));
+		}
+		
 	}
 	animate(){
 		ctx.clearRect(0,0,this.width,this.height);
+		if(this.lives === 0 && this.balls.length === 0 && !this.in_menu && !this.game_end){
+			this.in_menu = true;
+			clearInterval(this.interval);
+			ctx.save();
+			ctx.font = "bold 40px Roboto";
+			ctx.fillText("You Lose!!!", this.width/2-100, this.height/2);
+			ctx.restore();
+			setTimeout(()=>{
+				this.start_game();
+				console.log("restarting");
+			},1500);
+			return;
+		}
 		ctx.save();
+		ctx.fillStyle = "black";
 		ctx.translate(this.width/2-25, 50);
-		ctx.font = "bold 50px Roboto";
+		ctx.font = "bold 45px Roboto";
 		ctx.fillText(this.score,0,0);
+		ctx.font = "30px Roboto";
+		ctx.fillText("Target: "+this.target,125, -5);
 		ctx.restore();
 
 		if(this.drawing && this.lives > 0){
@@ -251,7 +364,11 @@ class gameBoard{
 		for(let i=0; i<this.balls.length; i++){
 			let ball = this.balls[i]
 			if(ball.active){
-				let trail = new Trail(ball.pos, ball.radius);
+				let red = 255;
+				if(this.gravTimeout && ball.grav_power){
+					red = 0;
+				}
+				let trail = new Trail(ball.pos, ball.radius, red);
 				ball.trail.push(trail);
 				for(let k=0; k<ball.trail.length;k++){
 					if(ball.trail[k].active){
@@ -272,15 +389,24 @@ class gameBoard{
 						this.texts.push(text);
 					}
 					else if(bonus.type === 'grav'){
+						if(this.gravTimeout){
+							clearTimeout(this.gravTimeout);
+						}
 						ball.gravity = 0;
+						ball.grav_power = true;
 						ball.friction = {x:1, y: 1}
+						ball.vel.x *= 1.04;
+						ball.vel.y *= 1.04;
 						ball.elasticity = 1;
-						let text = new FloatingText("Floating!", 15, bonus.pos, undefined, {r:50,g:200,b:50});
+						let text = new FloatingText("Floating!", 20, bonus.pos, undefined, {r:50,g:220,b:50});
 						this.texts.push(text);
-						setTimeout(() =>{
-							ball.gravity = 1
+
+						this.gravTimeout = setTimeout(() =>{
+							ball.gravity = 1;
+							ball.grav_power = false;
 							ball.friction = {x : 0.997, y: 0.995};
 							ball.elasticity = 0.96;
+							this.gravTimeout = null;
 						}, 1500);
 					}
 					this.bonuses.pop();
@@ -341,16 +467,17 @@ class FloatingText{
 	}
 }
 class Trail{
-	constructor(pos,radius){
+	constructor(pos,radius,red=255){
 		this.pos = {x: pos.x, y: pos.y};
 		this.active = true;
 		this.opacity = 1;
 		this.radius = radius;
 		this.green = 160;
+		this.red = red;
 	}
 	draw(){
 		ctx.save();
-		ctx.fillStyle = "rgba(255,"+this.green+",50,"+this.opacity+")";
+		ctx.fillStyle = "rgba("+this.red+","+this.green+",50,"+this.opacity+")";
 		ctx.beginPath();
 		ctx.arc(this.pos.x,this.pos.y,this.radius,0,Math.PI*2);
 		ctx.closePath();
@@ -371,15 +498,14 @@ class Bonus{
 		this.active = true;
 		this.radius = 18;
 		this.board = gameBoard;
-		// 50/50 chance of becoming each type of bonus
 		if(type){
 			this.type = type;
 		}
 		else{
-			this.type = Math.random() > 0.5 ? 'mult' : 'grav';
+			this.type = Math.random() > 0.666 ? 'mult' : 'grav';
 		}
 		
-		this.colour = this.type === 'mult' ? 'rgb(200,200,0)' : 'rgb(50,200,50)';
+		this.colour = this.type === 'mult' ? 'rgb(220,220,0)' : 'rgb(50,200,50)';
 		if(pos){
 			this.pos = pos;
 		}
@@ -443,13 +569,14 @@ class Basket{
 }
 
 class Ball{
-	constructor(pos,vel){
+	constructor(pos,vel, radius=5){
 		this.active = true;
 		this.colliding = false;
-		this.radius = 5;
+		this.radius = radius;
 		this.gravity = 1;
 		this.elasticity = 0.96;
 		this.friction = {x: 0.997, y: 0.995};
+		this.grav_power = false;
 		this.red = 0;
 		this.pos = pos;
 		this.prevpos = pos;
@@ -461,14 +588,14 @@ class Ball{
 		this.stabilityThreshold = 50;
 	}
 	update(){
-		this.prevpos = {x: this.pos.x, y: this.pos.y} //deep copy position;
-		this.vel.y += this.gravity
+		this.prevpos = {x: this.pos.x, y: this.pos.y}; //deep copy position
+		this.vel.y += this.gravity;
 		this.pos.x += this.vel.x;
 		this.pos.y += this.vel.y;
 		this.handleCollision();
 		this.vel.x *= this.friction.x; // Less friction in the x direction feels better
 		this.vel.y *= this.friction.y;
-		if(Math.abs(this.vel.y) < 0.6){
+		if(Math.abs(this.vel.y) < 0.6 && this.pos.y > height-50){
 			this.stability++;
 		}
 		if(this.stability > this.stabilityThreshold){
@@ -477,6 +604,8 @@ class Ball{
 		this.draw();
 	}
 	bounce(){
+		let volume = Math.sqrt(this.vel.x**2+this.vel.y**2);
+		playBounce(volume);
 		this.vel.x *= this.elasticity;
 		this.vel.y *= this.elasticity;
 		if(Math.abs(this.vel.y) > 5){
@@ -529,5 +658,6 @@ let board = new gameBoard(width,height);
 
 
 canvas.addEventListener('pointerdown', (e) => board.mouse_down(e));
-canvas.addEventListener('pointermove', (e) => board.set_pos(e));
-canvas.addEventListener('pointerup', (e) => board.shoot(e));
+document.addEventListener('pointermove', (e) => board.set_pos(e));
+document.addEventListener('pointerup', (e) => board.shoot(e));
+//Allows you to shoot even if you drag off the canvas
